@@ -1,0 +1,65 @@
+name: engsoftware
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["9200:9200"]
+    volumes: ["es-data:/usr/share/elasticsearch/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: { context: ., args: { SERVICE: api } }
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    environment: &env
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RAW_STORAGE_DIR: /app/data/raw
+    volumes: ["raw-data:/app/data/raw"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  downloader:
+    build: { context: ., args: { SERVICE: downloader } }
+    command: celery -A downloader.main:app worker -Q download -l info
+    environment: *env
+    volumes: ["raw-data:/app/data/raw"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  extractor:
+    build: { context: ., args: { SERVICE: extractor } }
+    command: celery -A extractor.main:app worker -Q extract -l info
+    environment: *env
+    volumes: ["raw-data:/app/data/raw"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  indexer:
+    build: { context: ., args: { SERVICE: indexer } }
+    command: celery -A indexer.main:app worker -Q index -l info
+    environment: *env
+    depends_on:
+      redis: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+
+volumes:
+  raw-data:
+  es-data:
