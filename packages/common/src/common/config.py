@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
-    elasticsearch_url: str = "http://localhost:9200"
-    elasticsearch_index: str = "web-pages"
+    sonic_host: str = "localhost"
+    sonic_port: int = 1491
+    sonic_password: str = "SecretPassword"
+    sonic_collection: str = "web-pages"
+    sonic_bucket: str = "pages"
 
     download_timeout: float = 30.0
     download_max_bytes: int = 5 * 1024 * 1024

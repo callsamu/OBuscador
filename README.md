@@ -1,23 +1,26 @@
 # engsoftware
 
 Microservices scaffold: an HTTP API orchestrates a Celery pipeline of
-**downloader → extractor → indexer**, with Redis as broker and Elasticsearch
+**downloader → extractor → indexer**, with Redis as broker and Sonic
 as the search engine.
 
 ```
              POST /crawl
                  │
                  ▼
-          ┌────────────┐   download    ┌────────────┐   extract   ┌────────────┐
-          │    api     │ ───────────▶ │ downloader │ ──────────▶ │ extractor │ ──▶ indexer ──▶ Elasticsearch
-          │ (FastAPI)  │    queue      │  (Celery)  │   queue     │ (Celery)  │    queue
-          └────────────┘               └────────────┘             └────────────┘
+          ┌────────────┐  download  ┌────────────┐  extract   ┌────────────┐  index   ┌────────────┐
+          │    api     │ ─────────▶ │ downloader │ ─────────▶ │ extractor  │ ───────▶ │  indexer   │ ──▶ Sonic
+          │ (FastAPI)  │   queue    │  (Celery)  │   queue    │  (Celery)  │  queue   │  (Celery)  │
+          └────────────┘            └────────────┘            └────────────┘          └────────────┘
 ```
 
 Each service is an independent Celery worker bound to a single queue. They
 never import one another: they publish well known task names
 (`common.queues.TaskNames`) onto well known queues, so any stage can be
 replaced or scaled on its own.
+
+Sonic indexes the text and returns only object ids; the indexer derives that id
+from the URL hash, so pair it with a document store when you need full payloads.
 
 ## Layout
 
@@ -27,9 +30,9 @@ packages/common/          shared settings, contracts, Celery factory
 services/api/             FastAPI HTTP layer
 services/downloader/      fetches URLs, stores raw HTML
 services/extractor/       parses HTML into structured data
-services/indexer/         writes documents to Elasticsearch
+services/indexer/         pushes document text to Sonic
 Dockerfile                one image, SERVICE build arg selects the member
-docker-compose.yml        redis + elasticsearch + the four services
+docker-compose.yml        redis + sonic + the four services
 ```
 
 ## Getting started
@@ -37,11 +40,11 @@ docker-compose.yml        redis + elasticsearch + the four services
 ```bash
 cp .env.example .env
 uv sync --all-packages        # install the workspace
-make up                      # docker compose: redis, elasticsearch, 4 services
+make up                      # docker compose: redis, sonic, 4 services
 ```
 
-Or run the pieces locally (needs a Redis and an Elasticsearch reachable at the
-addresses in `.env`):
+Or run the pieces locally (needs Redis and Sonic reachable at the addresses in
+`.env`):
 
 ```bash
 make api        # uvicorn api.main:app --reload
@@ -68,8 +71,8 @@ curl -X POST localhost:8000/crawl \
 ## Configuration
 
 All settings live in `packages/common/src/common/config.py` and are read from
-the environment (see `.env.example`): `REDIS_URL`, `ELASTICSEARCH_URL`,
-`ELASTICSEARCH_INDEX`, `RAW_STORAGE_DIR`, `DOWNLOAD_TIMEOUT`, …
+the environment (see `.env.example`): `REDIS_URL`, `SONIC_HOST`, `SONIC_PORT`, `SONIC_PASSWORD`,
+`RAW_STORAGE_DIR`, `DOWNLOAD_TIMEOUT`, …
 
 ## Quality gates
 
