@@ -80,3 +80,6 @@ the environment (see `.env.example`): `REDIS_URL`, `SONIC_HOST`, `SONIC_PORT`, `
 make lint   # ruff check + ruff format --check + mypy
 make test   # pytest
 ```
+
+Tests can live in `tests/` or next to the module they cover, e.g.
+`packages/common/src/common/test_db.py`; pytest collects both.

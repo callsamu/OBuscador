@@ -28,7 +28,7 @@ def get_engine() -> Engine:
     )
 
 
-def create_db(eng: Engine):
+def create_db(eng: Engine) -> None:
     SQLModel.metadata.create_all(eng)
 
 

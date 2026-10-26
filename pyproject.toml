@@ -50,7 +50,8 @@ ignore_missing_imports = true
 exclude = ["\\.venv", "build", "dist"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages", "services"]
+python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["packages/common/src", "services/api/src", "services/downloader/src", "services/extractor/src", "services/indexer/src"]
 addopts = "-q"
 filterwarnings = ["error::DeprecationWarning:common.*", "error::DeprecationWarning:api.*"]
