@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     service_name: str = "engsoftware"
     log_level: str = "INFO"
 
+    db_url: str = "sqlite:///database.db"
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
@@ -25,7 +26,7 @@ class Settings(BaseSettings):
 
     download_timeout: float = 30.0
     download_max_bytes: int = 5 * 1024 * 1024
-    user_agent: str = "engsoftware-downloader/0.1"
+    user_agent: str = "obuscador-downloader/0.1"
 
     raw_storage_dir: str = "data/raw"
 
