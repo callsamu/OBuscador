@@ -12,15 +12,6 @@ class CrawlRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class Downloaded(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    url: str
-    raw_path: str | None = None
-    content_type: str | None = None
-    size_bytes: int = 0
-
-
 class Extracted(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

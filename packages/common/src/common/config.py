@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     service_name: str = "engsoftware"
     log_level: str = "INFO"
 
-    db_url: str = "sqlite:///database.db"
+    downloader_db_url: str = "sqlite:///downloader.db"
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None

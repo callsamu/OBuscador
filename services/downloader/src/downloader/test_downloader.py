@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import httpx
@@ -10,7 +9,7 @@ import pytest
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine, select
 
-from common.db import Document, DocumentState, create_db, hash_url
+from downloader.db import Url, UrlState, create_db, hash_url
 from downloader.downloader import Downloader, FetchResult
 
 URL = "https://example.com/article"
@@ -33,7 +32,7 @@ def _client(body: bytes = BODY, content_type: str = "text/html") -> httpx.Client
 def test_fetch_returns_body_and_content_type(tmp_path: Path) -> None:
     result = Downloader(raw_dir=tmp_path, client=_client()).fetch(URL)
 
-    assert result.body == b"<html>hi</html>"
+    assert result.body == BODY
     assert result.content_type == "text/html"
     assert result.size_bytes == len(result.body)
 
@@ -53,9 +52,8 @@ def test_fetch_raises_on_error_status(tmp_path: Path) -> None:
         Downloader(tmp_path, client=client).fetch(URL)
 
 
-def test_store_writes_a_hashed_file_and_records_metadata(tmp_path: Path) -> None:
-    engine = _engine(tmp_path / "metadata.db")
-    downloader = Downloader(tmp_path / "raw", engine=engine, client=_client())
+def test_store_writes_a_hashed_file_under_raw_dir(tmp_path: Path) -> None:
+    downloader = Downloader(tmp_path / "raw", client=_client())
 
     path = downloader.store(downloader.fetch(URL))
 
@@ -63,28 +61,53 @@ def test_store_writes_a_hashed_file_and_records_metadata(tmp_path: Path) -> None
     assert path == expected
     assert path.read_bytes() == BODY
 
-    with Session(engine) as session:
-        [document] = session.exec(select(Document)).all()
 
-    assert document.url_hash == hash_url(URL)
-    assert document.url == URL
-    assert document.host == "example.com"
-    assert document.content_path == str(expected)
-    assert document.content_hash == hashlib.sha256(BODY).hexdigest()
-    assert document.state is DocumentState.DOWNLOADED
+def test_create_url_records_a_pending_url(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "urls.db")
+    downloader = Downloader(tmp_path / "raw", engine=engine)
 
+    record = downloader.create_url(URL)
 
-def test_store_updates_the_existing_row_for_the_same_url(tmp_path: Path) -> None:
-    engine = _engine(tmp_path / "metadata.db")
-    downloader = Downloader(tmp_path / "raw", engine=engine, client=_client())
-
-    downloader.store(downloader.fetch(URL))
-    downloader.store(downloader.fetch(URL))
+    assert record.url_hash == hash_url(URL)
+    assert record.url == URL
+    assert record.host == "example.com"
+    assert record.state is UrlState.PENDING
+    assert record.createdAt.tzinfo is not None
 
     with Session(engine) as session:
-        documents = session.exec(select(Document)).all()
+        assert session.get(Url, hash_url(URL)) is not None
 
-    assert len(documents) == 1
+
+def test_mark_completed_and_failed_update_the_state(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "urls.db")
+    downloader = Downloader(tmp_path / "raw", engine=engine)
+    downloader.create_url(URL)
+
+    downloader.mark_completed(URL)
+    with Session(engine) as session:
+        record = session.get(Url, hash_url(URL))
+        assert record is not None
+        assert record.state is UrlState.COMPLETED
+
+    downloader.mark_failed(URL)
+    with Session(engine) as session:
+        record = session.get(Url, hash_url(URL))
+        assert record is not None
+        assert record.state is UrlState.FAILED
+
+
+def test_recording_the_same_url_twice_keeps_one_row(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "urls.db")
+    downloader = Downloader(tmp_path / "raw", engine=engine)
+
+    downloader.create_url(URL)
+    downloader.mark_completed(URL)
+    downloader.create_url(URL)
+
+    with Session(engine) as session:
+        records = session.exec(select(Url)).all()
+        assert len(records) == 1
+        assert records[0].state is UrlState.PENDING
 
 
 @pytest.mark.parametrize(

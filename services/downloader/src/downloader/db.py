@@ -1,4 +1,4 @@
-"""Database models and engine setup shared by all services."""
+"""Downloader-owned database: URL records and engine setup."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _utcnow() -> datetime:
 
 
 def hash_url(url: str) -> str:
-    """Return the primary key used for a document URL."""
+    """Return the primary key used for a URL."""
     return hashlib.sha256(url.encode()).hexdigest()
 
 
@@ -28,11 +28,11 @@ def hash_url(url: str) -> str:
 def get_engine() -> Engine:
     """Build the SQLAlchemy engine described by the shared settings."""
     connect_args: dict[str, object] = {}
-    if settings.db_url.startswith("sqlite"):
+    if settings.downloader_db_url.startswith("sqlite"):
         # The API serves requests from a thread pool, so connections may move between threads.
         connect_args["check_same_thread"] = False
     return create_engine(
-        settings.db_url,
+        settings.downloader_db_url,
         echo=settings.log_level.upper() == "DEBUG",
         connect_args=connect_args,
     )
@@ -42,31 +42,27 @@ def create_db(eng: Engine) -> None:
     SQLModel.metadata.create_all(eng)
 
 
-class DocumentState(StrEnum):
-    """Lifecycle of a document as it moves through the services."""
+class UrlState(StrEnum):
+    """Download lifecycle of a URL."""
 
     PENDING = "pending"
-    DOWNLOADED = "downloaded"
-    EXTRACTED = "extracted"
-    INDEXED = "indexed"
+    COMPLETED = "completed"
     FAILED = "failed"
 
 
-class Document(SQLModel, table=True):
-    """A crawled document, keyed by the hash of its URL."""
+class Url(SQLModel, table=True):
+    """A URL known to the downloader."""
 
     url_hash: str = Field(primary_key=True)
     url: str = Field(unique=True)
     host: str = Field(index=True)
-    content_path: str | None = None
-    content_hash: str | None = None
-    state: DocumentState = Field(
-        default=DocumentState.PENDING,
+    state: UrlState = Field(
+        default=UrlState.PENDING,
         sa_column=Column(
             SAEnum(
-                DocumentState,
+                UrlState,
                 values_callable=lambda enum_cls: [member.value for member in enum_cls],
-                name="documentstate",
+                name="urlstate",
             ),
             nullable=False,
             index=True,

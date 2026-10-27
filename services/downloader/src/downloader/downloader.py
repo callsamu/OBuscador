@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from common.config import settings
-from common.db import Document, DocumentState, create_db, get_engine, hash_url
+from downloader.db import Url, UrlState, create_db, get_engine, hash_url
 
 HTML_CONTENT_TYPES: Final[frozenset[str]] = frozenset({"text/html", "application/xhtml+xml"})
 
@@ -78,33 +78,43 @@ class Downloader:
         )
 
     def store(self, result: FetchResult) -> Path:
-        """Write the fetched body under ``raw_dir`` and record its metadata."""
+        """Write the fetched body under ``raw_dir`` and return its path."""
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         path = self.raw_dir / self._filename_for(result.url)
         path.write_bytes(result.body)
-        self._save_metadata(result, path)
         return path
 
-    def _save_metadata(self, result: FetchResult, path: Path) -> None:
+    def create_url(self, url: str) -> Url:
+        """Record ``url`` as pending, resetting an existing record for a re-crawl."""
+        return self._set_state(url, UrlState.PENDING)
+
+    def mark_completed(self, url: str) -> None:
+        """Flag a URL whose content was stored successfully."""
+        self._set_state(url, UrlState.COMPLETED)
+
+    def mark_failed(self, url: str) -> None:
+        """Flag a URL whose download or storage failed."""
+        self._set_state(url, UrlState.FAILED)
+
+    def _set_state(self, url: str, state: UrlState) -> Url:
         if not self._schema_ready:
             create_db(self.engine)
             self._schema_ready = True
 
-        parts = urlsplit(result.url)
-        url_hash = hash_url(result.url)
+        parts = urlsplit(url)
         with Session(self.engine) as session:
-            document = session.get(Document, url_hash)
-            if document is None:
-                document = Document(
-                    url_hash=url_hash,
-                    url=result.url,
+            record = session.get(Url, hash_url(url))
+            if record is None:
+                record = Url(
+                    url_hash=hash_url(url),
+                    url=url,
                     host=parts.hostname or parts.netloc,
                 )
-            document.content_path = str(path)
-            document.content_hash = hashlib.sha256(result.body).hexdigest()
-            document.state = DocumentState.DOWNLOADED
-            session.add(document)
+            record.state = state
+            session.add(record)
             session.commit()
+            session.refresh(record)
+            return record
 
     @staticmethod
     def is_html(result: FetchResult) -> bool:

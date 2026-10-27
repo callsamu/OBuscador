@@ -260,7 +260,6 @@ dependencies = [
     { name = "celery", extra = ["redis"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "sqlmodel" },
 ]
 
 [package.metadata]
@@ -268,7 +267,6 @@ requires-dist = [
     { name = "celery", extras = ["redis"], specifier = ">=5.4" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.5" },
-    { name = "sqlmodel", specifier = ">=0.0.48" },
 ]
 
 [[package]]
@@ -278,12 +276,16 @@ source = { editable = "services/downloader" }
 dependencies = [
     { name = "common" },
     { name = "httpx" },
+    { name = "sqlalchemy" },
+    { name = "sqlmodel" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "common", editable = "packages/common" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "sqlmodel", specifier = ">=0.0.48" },
 ]
 
 [[package]]

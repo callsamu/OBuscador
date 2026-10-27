@@ -6,17 +6,16 @@ from collections.abc import Callable
 from typing import Any
 
 from common.celery_app import create_app
-from common.contracts import Downloaded, Extracted
+from common.contracts import Extracted
 from common.queues import QUEUES, TaskNames
 from extractor.extractor import Extractor
 
 app = create_app("extractor", QUEUES["extract"])
 
 
-def process(payload: dict, extractor: Extractor) -> Extracted:
+def process(url: str, content_path: str | None, extractor: Extractor) -> Extracted:
     """Parse the stored HTML and build the indexer payload."""
-    downloaded = Downloaded.model_validate(payload)
-    return extractor.from_file(downloaded.url, downloaded.raw_path)
+    return extractor.from_file(url, content_path)
 
 
 def forward(extracted: Extracted, send: Callable[..., Any] | None = None) -> None:
@@ -29,8 +28,8 @@ def forward(extracted: Extracted, send: Callable[..., Any] | None = None) -> Non
 
 
 @app.task(name=TaskNames.EXTRACT)
-def extract(payload: dict) -> dict:
+def extract(url: str, content_path: str | None = None) -> dict:
     """Parse the stored HTML and forward the structured result to the indexer."""
-    extracted = process(payload, Extractor())
+    extracted = process(url, content_path, Extractor())
     forward(extracted)
     return extracted.model_dump()
