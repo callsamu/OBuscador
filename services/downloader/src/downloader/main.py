@@ -2,42 +2,51 @@
 
 from __future__ import annotations
 
-import hashlib
-from pathlib import Path
-
-import httpx
+import logging
+from collections.abc import Callable
+from typing import Any
 
 from common.celery_app import create_app
-from common.config import settings
 from common.contracts import Downloaded
 from common.queues import QUEUES, TaskNames
+from downloader.downloader import Downloader
+
+logger = logging.getLogger(__name__)
 
 app = create_app("downloader", QUEUES["download"])
 
 
-@app.task(name=TaskNames.DOWNLOAD)
-def download(url: str) -> dict:
-    """Fetch the URL, store the raw body and forward it to the extractor."""
-    raw_dir = Path(settings.raw_storage_dir)
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
-    with httpx.Client(follow_redirects=True, timeout=settings.download_timeout) as client:
-        response = client.get(url, headers={"User-Agent": settings.user_agent})
-        response.raise_for_status()
-        body = response.content[: settings.download_max_bytes]
-
-    raw_path = raw_dir / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.html"
-    raw_path.write_bytes(body)
-
+def process(url: str, downloader: Downloader) -> Downloaded:
+    """Fetch ``url`` and store its body when the response is HTML."""
+    fetched = downloader.fetch(url)
     payload = Downloaded(
         url=url,
-        raw_path=str(raw_path),
-        content_type=response.headers.get("content-type"),
-        size_bytes=len(body),
+        content_type=fetched.content_type,
+        size_bytes=fetched.size_bytes,
     )
-    app.send_task(
+
+    if not downloader.is_html(fetched):
+        logger.info("not forwarding %s: content type %r is not HTML", url, fetched.content_type)
+        return payload
+
+    payload.raw_path = str(downloader.store(fetched))
+    return payload
+
+
+def forward(payload: Downloaded, send: Callable[..., Any] | None = None) -> None:
+    """Queue a stored document for extraction, skipping ones with no raw file."""
+    if payload.raw_path is None:
+        return
+    (send or app.send_task)(
         TaskNames.EXTRACT,
         kwargs={"payload": payload.model_dump()},
         queue=QUEUES["extract"],
     )
+
+
+@app.task(name=TaskNames.DOWNLOAD)
+def download(url: str) -> dict:
+    """Fetch the URL, store HTML bodies and forward them to the extractor."""
+    payload = process(url, Downloader())
+    forward(payload)
     return payload.model_dump()
