@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from common.config import settings
-from common.db import Document, create_db, get_engine
+from common.db import Document, DocumentState, create_db, get_engine, hash_url
 
 HTML_CONTENT_TYPES: Final[frozenset[str]] = frozenset({"text/html", "application/xhtml+xml"})
 
@@ -82,17 +82,28 @@ class Downloader:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         path = self.raw_dir / self._filename_for(result.url)
         path.write_bytes(result.body)
-        self._save_metadata(result.url, path)
+        self._save_metadata(result, path)
         return path
 
-    def _save_metadata(self, url: str, path: Path) -> None:
+    def _save_metadata(self, result: FetchResult, path: Path) -> None:
         if not self._schema_ready:
             create_db(self.engine)
             self._schema_ready = True
 
-        parts = urlsplit(url)
+        parts = urlsplit(result.url)
+        url_hash = hash_url(result.url)
         with Session(self.engine) as session:
-            session.add(Document(domain=parts.netloc, path=parts.path, filepath=str(path)))
+            document = session.get(Document, url_hash)
+            if document is None:
+                document = Document(
+                    url_hash=url_hash,
+                    url=result.url,
+                    host=parts.hostname or parts.netloc,
+                )
+            document.content_path = str(path)
+            document.content_hash = hashlib.sha256(result.body).hexdigest()
+            document.state = DocumentState.DOWNLOADED
+            session.add(document)
             session.commit()
 
     @staticmethod

@@ -10,10 +10,11 @@ import pytest
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine, select
 
-from common.db import Document, create_db
+from common.db import Document, DocumentState, create_db, hash_url
 from downloader.downloader import Downloader, FetchResult
 
 URL = "https://example.com/article"
+BODY = b"<html>hi</html>"
 
 
 def _engine(path: Path) -> Engine:
@@ -22,7 +23,7 @@ def _engine(path: Path) -> Engine:
     return engine
 
 
-def _client(body: bytes = b"<html>hi</html>", content_type: str = "text/html") -> httpx.Client:
+def _client(body: bytes = BODY, content_type: str = "text/html") -> httpx.Client:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=body, headers={"content-type": content_type})
 
@@ -58,16 +59,32 @@ def test_store_writes_a_hashed_file_and_records_metadata(tmp_path: Path) -> None
 
     path = downloader.store(downloader.fetch(URL))
 
-    expected = tmp_path / "raw" / f"{hashlib.sha256(URL.encode()).hexdigest()[:16]}.html"
+    expected = tmp_path / "raw" / f"{hash_url(URL)[:16]}.html"
     assert path == expected
-    assert path.read_bytes() == b"<html>hi</html>"
+    assert path.read_bytes() == BODY
 
     with Session(engine) as session:
         [document] = session.exec(select(Document)).all()
 
-    assert document.domain == "example.com"
-    assert document.path == "/article"
-    assert document.filepath == str(expected)
+    assert document.url_hash == hash_url(URL)
+    assert document.url == URL
+    assert document.host == "example.com"
+    assert document.content_path == str(expected)
+    assert document.content_hash == hashlib.sha256(BODY).hexdigest()
+    assert document.state is DocumentState.DOWNLOADED
+
+
+def test_store_updates_the_existing_row_for_the_same_url(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "metadata.db")
+    downloader = Downloader(tmp_path / "raw", engine=engine, client=_client())
+
+    downloader.store(downloader.fetch(URL))
+    downloader.store(downloader.fetch(URL))
+
+    with Session(engine) as session:
+        documents = session.exec(select(Document)).all()
+
+    assert len(documents) == 1
 
 
 @pytest.mark.parametrize(
